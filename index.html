@@ -5,6 +5,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sistema de Gestão - Exumações e Sepultamentos</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where, orderBy } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        
+        // Configuração do Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyDcrPFyyWgux59eHDvZHdQGnt8MesBTZ6Y",
+            authDomain: "agenda-b4342.firebaseapp.com",
+            projectId: "agenda-b4342",
+            storageBucket: "agenda-b4342.firebasestorage.app",
+            messagingSenderId: "340297263821",
+            appId: "1:340297263821:web:7411d51d2de80eca439784",
+            measurementId: "G-71KX383V0S"
+        };
+        
+        // Inicializar Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        
+        // Disponibilizar globalmente
+        window.db = db;
+        window.firestore = { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where, orderBy };
+    </script>
+    <!-- Utilitários Firebase -->
+    <script src="firebase-sync.js"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -504,6 +530,7 @@
                             <option value="traslado-crematório">Traslado Crematório</option>
                             <option value="traslado">Traslado</option>
                             <option value="fcv">F.CV</option>
+                            <option value="sepultura">Sepultura</option>
                         </select>
                     </div>
 
@@ -729,9 +756,20 @@
 
             <!-- Burials List -->
             <div class="bg-white rounded-xl shadow-lg p-6 mt-8 border border-slate-200">
-                <h3 class="text-xl font-bold text-slate-800 mb-4">Todos os Sepultamentos Agendados</h3>
-                <div id="burialsList" class="space-y-3">
-                    <p class="text-slate-500 text-center py-8">Nenhum sepultamento agendado</p>
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold text-slate-800">Todos os Sepultamentos Agendados</h3>
+                    <button onclick="toggleBurialsList()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2">
+                        <span id="burialsToggleIcon">▼</span>
+                        <span id="burialsToggleText">Mostrar</span>
+                    </button>
+                </div>
+                <div id="burialsListContainer" class="hidden">
+                    <div class="mb-4">
+                        <input type="text" id="searchBurials" placeholder="Pesquisar por nome, funerária, quadra ou lote..." class="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent" oninput="filterBurials()">
+                    </div>
+                    <div id="burialsList" class="space-y-3">
+                        <p class="text-slate-500 text-center py-8">Nenhum sepultamento agendado</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -863,14 +901,16 @@
         </div>
     </div>
 
+    <!-- JavaScript Files -->
+    <script src="app.js"></script>
+    <script src="views.js"></script>
+    <script src="actions.js"></script>
+    <script src="reports.js"></script>
     <script>
-        // Data storage
-        let exhumations = JSON.parse(localStorage.getItem('exhumations') || '[]');
-        let burials = JSON.parse(localStorage.getItem('burials') || '[]');
-        let agents = JSON.parse(localStorage.getItem('agents') || '[]');
-        let funeralHomes = JSON.parse(localStorage.getItem('funeralHomes') || '[]');
-        let openGraves = JSON.parse(localStorage.getItem('openGraves') || '[]');
-        let waitingDrawer = JSON.parse(localStorage.getItem('waitingDrawer') || '[]');
+
+
+
+
 
         // Navigation
         function showSection(sectionId) {
@@ -938,6 +978,20 @@
                         </div>
                     `;
                     break;
+                case 'sepultura':
+                    fieldsContainer.innerHTML = `
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Quadra *</label>
+                                <input type="text" name="quadraDestino" required class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Ex: A, B, 1, 2">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Lote *</label>
+                                <input type="text" name="loteDestino" required class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="Ex: 123, 45A">
+                            </div>
+                        </div>
+                    `;
+                    break;
                 case 'traslado-crematório':
                     fieldsContainer.innerHTML = `
                         <div>
@@ -997,19 +1051,20 @@
         }
 
         // Schedule exhumation
-        function scheduleExhumation(event) {
+        async function scheduleExhumation(event) {
             event.preventDefault();
             const formData = new FormData(event.target);
             const data = Object.fromEntries(formData.entries());
             
-            data.id = Date.now();
             data.status = 'agendada';
             data.whatsappLink = generateWhatsAppLink(data.telefone);
             data.agenteSepultador = '';
             data.conclusao = '';
+            data.createdAt = new Date().toISOString();
             
+            const docId = await saveToFirebase('exhumations', data);
+            data.id = docId;
             exhumations.push(data);
-            localStorage.setItem('exhumations', JSON.stringify(exhumations));
             
             showSuccess('Exumação agendada com sucesso!');
             event.target.reset();
@@ -1019,13 +1074,13 @@
         }
 
         // Schedule burial
-        function scheduleBurial(event) {
+        async function scheduleBurial(event) {
             event.preventDefault();
             const formData = new FormData(event.target);
             const data = Object.fromEntries(formData.entries());
             
-            data.id = Date.now();
             data.agentes = Array.from(document.querySelectorAll('#agentSelection input:checked')).map(cb => cb.value);
+            data.createdAt = new Date().toISOString();
             
             // Use custom time if selected
             if (data.horario === 'custom') {
@@ -1046,16 +1101,18 @@
                 }
             }
             
+            const docId = await saveToFirebase('burials', data);
+            data.id = docId;
             burials.push(data);
-            localStorage.setItem('burials', JSON.stringify(burials));
             
             // Remove grave from open graves only if it was selected from the list
             if (data.sepultura !== `${data.quadraManual}-${data.loteManual}`) {
-                openGraves = openGraves.filter(g => g.id !== data.sepultura);
-                localStorage.setItem('openGraves', JSON.stringify(openGraves));
+                const graveToRemove = openGraves.find(g => g.id === data.sepultura);
+                if (graveToRemove) {
+                    await deleteFromFirebase('openGraves', graveToRemove.id);
+                    openGraves = openGraves.filter(g => g.id !== data.sepultura);
+                }
             }
-            
-            // Participation count will be calculated dynamically from existing burials
             
             showSuccess('Sepultamento agendado com sucesso!');
             event.target.reset();
@@ -1067,16 +1124,17 @@
         }
 
         // Register agent
-        function registerAgent(event) {
+        async function registerAgent(event) {
             event.preventDefault();
             const formData = new FormData(event.target);
             const data = Object.fromEntries(formData.entries());
             
-            data.id = Date.now();
             data.whatsappLink = generateWhatsAppLink(data.telefone);
+            data.createdAt = new Date().toISOString();
             
+            const docId = await saveToFirebase('agents', data);
+            data.id = docId;
             agents.push(data);
-            localStorage.setItem('agents', JSON.stringify(agents));
             
             showSuccess('Agente cadastrado com sucesso!');
             event.target.reset();
@@ -1086,7 +1144,7 @@
         }
 
         // Register open grave
-        function registerOpenGrave(event) {
+        async function registerOpenGrave(event) {
             event.preventDefault();
             const formData = new FormData(event.target);
             const data = Object.fromEntries(formData.entries());
@@ -1100,12 +1158,13 @@
                 return;
             }
             
-            data.id = graveId;
             data.dataAbertura = new Date().toLocaleDateString('pt-BR');
             data.dataCadastro = new Date().toISOString();
+            data.graveId = graveId;
             
+            const docId = await saveToFirebase('openGraves', data);
+            data.id = docId;
             openGraves.push(data);
-            localStorage.setItem('openGraves', JSON.stringify(openGraves));
             
             showSuccess('Sepultura aberta cadastrada com sucesso!');
             event.target.reset();
@@ -1115,16 +1174,17 @@
         }
 
         // Register funeral home
-        function registerFuneralHome(event) {
+        async function registerFuneralHome(event) {
             event.preventDefault();
             const formData = new FormData(event.target);
             const data = Object.fromEntries(formData.entries());
             
-            data.id = Date.now();
             data.whatsappLink = generateWhatsAppLink(data.telefone);
+            data.createdAt = new Date().toISOString();
             
+            const docId = await saveToFirebase('funeralHomes', data);
+            data.id = docId;
             funeralHomes.push(data);
-            localStorage.setItem('funeralHomes', JSON.stringify(funeralHomes));
             
             showSuccess('Funerária cadastrada com sucesso!');
             event.target.reset();
@@ -1223,13 +1283,13 @@
                             </p>
                         </div>
                         <div class="flex flex-col gap-2">
-                            <button onclick="editBurialAgents(${burial.id})" class="bg-indigo-600 text-white px-3 py-1 rounded text-sm hover:bg-indigo-700 transition-colors">
+                            <button onclick="editBurialAgents('${burial.id}')" class="bg-indigo-600 text-white px-3 py-1 rounded text-sm hover:bg-indigo-700 transition-colors">
                                 Editar Agentes
                             </button>
-                            <button onclick="editBurial(${burial.id})" class="bg-amber-500 text-white px-3 py-1 rounded text-sm hover:bg-amber-600 transition-colors">
+                            <button onclick="editBurial('${burial.id}')" class="bg-amber-500 text-white px-3 py-1 rounded text-sm hover:bg-amber-600 transition-colors">
                                 Editar
                             </button>
-                            <button onclick="deleteBurial(${burial.id})" class="bg-rose-600 text-white px-3 py-1 rounded text-sm hover:bg-rose-700 transition-colors">
+                            <button onclick="deleteBurial('${burial.id}')" class="bg-rose-600 text-white px-3 py-1 rounded text-sm hover:bg-rose-700 transition-colors">
                                 Excluir
                             </button>
                         </div>
@@ -1255,64 +1315,99 @@
                 return;
             }
             
-            container.innerHTML = dayExhumations.map(ex => `
+            container.innerHTML = dayExhumations.map(ex => {
+                // Build destination info with additional details
+                let destinoInfo = ex.destino;
+                if (ex.destino === 'sepultura' && ex.quadraDestino && ex.loteDestino) {
+                    destinoInfo += ` (Quadra ${ex.quadraDestino} - Lote ${ex.loteDestino})`;
+                } else if (ex.destino === 'nicho' && ex.numeroNicho) {
+                    destinoInfo += ` (${ex.numeroNicho})`;
+                } else if (ex.destino === 'sepulcro' && ex.quadraSepulcro && ex.numeroSepulcro) {
+                    destinoInfo += ` (Quadra ${ex.quadraSepulcro} - Nº ${ex.numeroSepulcro})`;
+                } else if (ex.destino === 'traslado' && ex.destinoTraslado) {
+                    destinoInfo += ` (${ex.destinoTraslado})`;
+                } else if ((ex.destino === 'traslado-crematório' || ex.destino === 'traslado') && ex.protocolo) {
+                    destinoInfo += ` (Protocolo: ${ex.protocolo})`;
+                }
+                
+                return `
                 <div class="p-4 border border-gray-200 rounded-lg">
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
                             <h4 class="font-semibold text-lg">${ex.nomefalecido}</h4>
                             <p class="text-sm text-gray-600">Quadra ${ex.quadra} - Lote ${ex.lote}</p>
-                            <p class="text-sm text-gray-600">Destino: ${ex.destino}</p>
+                            <p class="text-sm text-gray-600">Destino: ${destinoInfo}</p>
                             <p class="text-sm text-gray-600">Solicitante: ${ex.solicitante}</p>
                             ${ex.conclusao ? `<p class="text-sm font-medium text-green-600">Conclusão: ${ex.conclusao}</p>` : ''}
                         </div>
                         <div>
                             <div class="mb-2">
                                 <label class="block text-xs text-gray-500 mb-1">Agente Sepultador:</label>
-                                <select onchange="updateExhumationAgent(${ex.id}, this.value)" class="w-full text-sm px-2 py-1 border border-gray-300 rounded">
+                                <select onchange="updateExhumationAgent('${ex.id}', this.value)" class="w-full text-sm px-2 py-1 border border-gray-300 rounded">
                                     <option value="">Selecionar agente</option>
                                     ${agents.map(agent => `
                                         <option value="${agent.nome}" ${ex.agenteSepultador === agent.nome ? 'selected' : ''}>${agent.nome}</option>
                                     `).join('')}
                                 </select>
                             </div>
-                            <a href="${ex.whatsappLink}" target="_blank" class="inline-block bg-teal-600 text-white px-3 py-1 rounded text-sm hover:bg-teal-700 transition-colors">
+                            <a href="${(() => {
+                                const greeting = new Date().getHours() < 12 ? 'Bom dia' : 'Boa tarde';
+                                const dataFormatted = new Date(ex.dataExumacao + 'T00:00:00').toLocaleDateString('pt-BR');
+                                let destinoInfo = ex.destino;
+                                if (ex.destino === 'sepultura' && ex.quadraDestino && ex.loteDestino) {
+                                    destinoInfo += ` (Quadra ${ex.quadraDestino} - Lote ${ex.loteDestino})`;
+                                } else if (ex.destino === 'nicho' && ex.numeroNicho) {
+                                    destinoInfo += ` (${ex.numeroNicho})`;
+                                } else if (ex.destino === 'sepulcro' && ex.quadraSepulcro && ex.numeroSepulcro) {
+                                    destinoInfo += ` (Quadra ${ex.quadraSepulcro} - Nº ${ex.numeroSepulcro})`;
+                                } else if (ex.destino === 'traslado' && ex.destinoTraslado) {
+                                    destinoInfo += ` (${ex.destinoTraslado})`;
+                                } else if ((ex.destino === 'traslado-crematório' || ex.destino === 'traslado') && ex.protocolo) {
+                                    destinoInfo += ` (Protocolo: ${ex.protocolo})`;
+                                }
+                                const message = `${greeting}! Confirmação do agendamento de exumação:\n\n*Nome do Falecido:* ${ex.nomefalecido}\n*Data da Exumação:* ${dataFormatted}\n*Localização:* Quadra ${ex.quadra} - Lote ${ex.lote}\n*Destino:* ${destinoInfo}\n*Livro:* ${ex.livro}\n*Página:* ${ex.pagina}\n*Solicitante:* ${ex.solicitante}\n\nAgendamento confirmado!`;
+                                const cleanNumber = ex.telefone.replace(/\D/g, '');
+                                const whatsappNumber = cleanNumber.startsWith('55') ? cleanNumber : '55' + cleanNumber;
+                                return `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
+                            })()}" class="inline-block bg-teal-600 text-white px-3 py-1 rounded text-sm hover:bg-teal-700 transition-colors">
                                 WhatsApp
                             </a>
                         </div>
                         <div class="flex flex-col gap-2">
                             ${ex.status === 'agendada' ? `
-                                <button onclick="editExhumation(${ex.id})" class="bg-indigo-600 text-white px-3 py-1 rounded text-sm hover:bg-indigo-700 transition-colors">
+                                <button onclick="editExhumation('${ex.id}')" class="bg-indigo-600 text-white px-3 py-1 rounded text-sm hover:bg-indigo-700 transition-colors">
                                     Editar
                                 </button>
-                                <button onclick="deleteExhumation(${ex.id})" class="bg-rose-600 text-white px-3 py-1 rounded text-sm hover:bg-rose-700 transition-colors">
+                                <button onclick="deleteExhumation('${ex.id}')" class="bg-rose-600 text-white px-3 py-1 rounded text-sm hover:bg-rose-700 transition-colors">
                                     Excluir
                                 </button>
-                                <button onclick="completeExhumation(${ex.id})" class="bg-teal-600 text-white px-3 py-1 rounded text-sm hover:bg-teal-700 transition-colors">
+                                <button onclick="completeExhumation('${ex.id}')" class="bg-teal-600 text-white px-3 py-1 rounded text-sm hover:bg-teal-700 transition-colors">
                                     Concluir
                                 </button>
                             ` : `
                                 <span class="text-sm font-medium text-slate-600">Status: ${ex.status}</span>
                                 ${ex.status === 'concluída' ? `
-                                    <button onclick="editExhumationConclusion(${ex.id})" class="bg-amber-500 text-white px-3 py-1 rounded text-sm hover:bg-amber-600 transition-colors">
+                                    <button onclick="editExhumationConclusion('${ex.id}')" class="bg-amber-500 text-white px-3 py-1 rounded text-sm hover:bg-amber-600 transition-colors">
                                         Editar Conclusão
                                     </button>
                                 ` : ''}
-                                <button onclick="deleteExhumation(${ex.id})" class="bg-slate-800 text-white px-3 py-1 rounded text-sm hover:bg-slate-900 transition-colors">
+                                <button onclick="deleteExhumation('${ex.id}')" class="bg-slate-800 text-white px-3 py-1 rounded text-sm hover:bg-slate-900 transition-colors">
                                     Excluir
                                 </button>
                             `}
                         </div>
                     </div>
                 </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
         // Exhumation management functions
-        function updateExhumationAgent(exhumationId, agentName) {
+        async function updateExhumationAgent(exhumationId, agentName) {
             const exhumation = exhumations.find(ex => ex.id === exhumationId);
             if (exhumation) {
                 exhumation.agenteSepultador = agentName;
-                localStorage.setItem('exhumations', JSON.stringify(exhumations));
+                await updateFirebase('exhumations', exhumationId, { agenteSepultador: agentName });
                 showSuccess('Agente atualizado com sucesso!');
             }
         }
@@ -1326,7 +1421,7 @@
             modal.innerHTML = `
                 <div class="bg-white rounded-xl p-6 max-w-2xl w-full mx-4 max-h-96 overflow-y-auto">
                     <h3 class="text-lg font-bold mb-4">Editar Exumação</h3>
-                    <form onsubmit="saveExhumationEdit(event, ${exhumationId})">
+                    <form onsubmit="saveExhumationEdit(event, '${exhumationId}')">
                         <div class="grid grid-cols-2 gap-4 mb-4">
                             <div>
                                 <label class="block text-sm font-medium mb-1">Data da Exumação</label>
@@ -1363,7 +1458,7 @@
             document.body.appendChild(modal);
         }
 
-        function saveExhumationEdit(event, exhumationId) {
+        async function saveExhumationEdit(event, exhumationId) {
             event.preventDefault();
             const formData = new FormData(event.target);
             const data = Object.fromEntries(formData.entries());
@@ -1372,7 +1467,7 @@
             if (exhumation) {
                 Object.assign(exhumation, data);
                 exhumation.whatsappLink = generateWhatsAppLink(data.telefone);
-                localStorage.setItem('exhumations', JSON.stringify(exhumations));
+                await updateFirebase('exhumations', exhumationId, { ...data, whatsappLink: exhumation.whatsappLink });
                 showSuccess('Exumação atualizada com sucesso!');
                 updateCalendarView();
                 event.target.closest('.fixed').remove();
@@ -1388,13 +1483,13 @@
                 <div class="bg-white rounded-xl p-6 max-w-md w-full mx-4">
                     <h3 class="text-lg font-bold mb-4">Concluir Exumação</h3>
                     <div class="space-y-3">
-                        <button onclick="finishExhumation(${exhumationId}, 'exumado')" class="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700">
+                        <button onclick="finishExhumation('${exhumationId}', 'exumado')" class="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700">
                             Exumado
                         </button>
-                        <button onclick="showExtensionOptions(${exhumationId})" class="w-full bg-yellow-600 text-white py-2 rounded hover:bg-yellow-700">
+                        <button onclick="showExtensionOptions('${exhumationId}')" class="w-full bg-yellow-600 text-white py-2 rounded hover:bg-yellow-700">
                             Não saiu + prazo
                         </button>
-                        <button onclick="finishExhumation(${exhumationId}, 'gaveta-espera')" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700">
+                        <button onclick="finishExhumation('${exhumationId}', 'gaveta-espera')" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700">
                             Gaveta de Espera
                         </button>
                         <button onclick="this.closest('.fixed').remove()" class="w-full bg-gray-600 text-white py-2 rounded hover:bg-gray-700">
@@ -1413,18 +1508,18 @@
                 <div class="bg-white rounded-xl p-6 max-w-md w-full mx-4">
                     <h3 class="text-lg font-bold mb-4">Prorrogar Prazo</h3>
                     <div class="space-y-3">
-                        <button onclick="finishExhumation(${exhumationId}, 'prorrogado-1-ano')" class="w-full bg-yellow-600 text-white py-2 rounded hover:bg-yellow-700">
+                        <button onclick="finishExhumation('${exhumationId}', 'prorrogado-1-ano')" class="w-full bg-yellow-600 text-white py-2 rounded hover:bg-yellow-700">
                             + 1 ano
                         </button>
-                        <button onclick="finishExhumation(${exhumationId}, 'prorrogado-2-anos')" class="w-full bg-yellow-600 text-white py-2 rounded hover:bg-yellow-700">
+                        <button onclick="finishExhumation('${exhumationId}', 'prorrogado-2-anos')" class="w-full bg-yellow-600 text-white py-2 rounded hover:bg-yellow-700">
                             + 2 anos
                         </button>
-                        <button onclick="finishExhumation(${exhumationId}, 'prorrogado-3-anos')" class="w-full bg-yellow-600 text-white py-2 rounded hover:bg-yellow-700">
+                        <button onclick="finishExhumation('${exhumationId}', 'prorrogado-3-anos')" class="w-full bg-yellow-600 text-white py-2 rounded hover:bg-yellow-700">
                             + 3 anos
                         </button>
                         <div class="flex gap-2">
                             <input type="number" id="customYears" placeholder="Anos" class="flex-1 px-3 py-2 border rounded">
-                            <button onclick="finishExhumation(${exhumationId}, 'prorrogado-' + document.getElementById('customYears').value + '-anos')" class="bg-yellow-600 text-white px-4 py-2 rounded hover:bg-yellow-700">
+                            <button onclick="finishExhumation('${exhumationId}', 'prorrogado-' + document.getElementById('customYears').value + '-anos')" class="bg-yellow-600 text-white px-4 py-2 rounded hover:bg-yellow-700">
                                 Confirmar
                             </button>
                         </div>
@@ -1437,7 +1532,7 @@
             document.body.appendChild(modal);
         }
 
-        function finishExhumation(exhumationId, conclusion) {
+        async function finishExhumation(exhumationId, conclusion) {
             const exhumation = exhumations.find(ex => ex.id === exhumationId);
             if (!exhumation) return;
             
@@ -1448,32 +1543,37 @@
             
             if (conclusion === 'exumado' || conclusion === 'gaveta-espera') {
                 // Add to open graves
-                if (!openGraves.find(g => g.id === graveId)) {
-                    openGraves.push({
-                        id: graveId,
+                if (!openGraves.find(g => g.graveId === graveId)) {
+                    const graveData = {
+                        graveId: graveId,
                         quadra: exhumation.quadra,
                         lote: exhumation.lote,
                         dataAbertura: new Date().toLocaleDateString('pt-BR'),
-                        origem: 'exumação'
-                    });
-                    localStorage.setItem('openGraves', JSON.stringify(openGraves));
+                        origem: 'exumação',
+                        dataCadastro: new Date().toISOString()
+                    };
+                    const docId = await saveToFirebase('openGraves', graveData);
+                    graveData.id = docId;
+                    openGraves.push(graveData);
                 }
                 
                 // If gaveta de espera, add to waiting drawer
                 if (conclusion === 'gaveta-espera') {
-                    waitingDrawer.push({
-                        id: Date.now(),
+                    const drawerData = {
                         nomefalecido: exhumation.nomefalecido,
                         quadraOriginal: exhumation.quadra,
                         loteOriginal: exhumation.lote,
-                        dataEntrada: new Date().toLocaleDateString('pt-BR')
-                    });
-                    localStorage.setItem('waitingDrawer', JSON.stringify(waitingDrawer));
+                        dataEntrada: new Date().toLocaleDateString('pt-BR'),
+                        createdAt: new Date().toISOString()
+                    };
+                    const docId = await saveToFirebase('waitingDrawer', drawerData);
+                    drawerData.id = docId;
+                    waitingDrawer.push(drawerData);
                     updateWaitingDrawerList();
                 }
             }
             
-            localStorage.setItem('exhumations', JSON.stringify(exhumations));
+            await updateFirebase('exhumations', exhumationId, { status: 'concluída', conclusao: conclusion });
             showSuccess('Exumação concluída!');
             updateCalendarView();
             updateDashboard();
@@ -1486,10 +1586,10 @@
             completeExhumation(exhumationId);
         }
 
-        function deleteExhumation(exhumationId) {
+        async function deleteExhumation(exhumationId) {
             if (confirm('Tem certeza que deseja EXCLUIR permanentemente esta exumação? Esta ação não pode ser desfeita.')) {
+                await deleteFromFirebase('exhumations', exhumationId);
                 exhumations = exhumations.filter(ex => ex.id !== exhumationId);
-                localStorage.setItem('exhumations', JSON.stringify(exhumations));
                 showSuccess('Exumação excluída permanentemente!');
                 updateCalendarView();
                 updateDashboard();
@@ -1503,7 +1603,18 @@
                 return;
             }
             
-            container.innerHTML = burials.map(burial => `
+            renderBurialsList(burials);
+        }
+        
+        function renderBurialsList(burialsToShow) {
+            const container = document.getElementById('burialsList');
+            
+            if (burialsToShow.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-center py-8">Nenhum sepultamento encontrado</p>';
+                return;
+            }
+            
+            container.innerHTML = burialsToShow.map(burial => `
                 <div class="p-4 border border-gray-200 rounded-lg">
                     <div class="flex justify-between items-start">
                         <div>
@@ -1534,13 +1645,48 @@
                             ${burial.velorio ? `<p class="text-sm text-gray-600">Velório: ${burial.velorio}</p>` : ''}
                         </div>
                         <div class="text-right">
-                            <button onclick="editBurialAgents(${burial.id})" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors">
+                            <button onclick="editBurialAgents('${burial.id}')" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors">
                                 Editar Agentes
                             </button>
                         </div>
                     </div>
                 </div>
             `).join('');
+        }
+        
+        function toggleBurialsList() {
+            const container = document.getElementById('burialsListContainer');
+            const icon = document.getElementById('burialsToggleIcon');
+            const text = document.getElementById('burialsToggleText');
+            
+            if (container.classList.contains('hidden')) {
+                container.classList.remove('hidden');
+                icon.textContent = '▲';
+                text.textContent = 'Ocultar';
+            } else {
+                container.classList.add('hidden');
+                icon.textContent = '▼';
+                text.textContent = 'Mostrar';
+            }
+        }
+        
+        function filterBurials() {
+            const searchTerm = document.getElementById('searchBurials').value.toLowerCase();
+            
+            if (!searchTerm) {
+                renderBurialsList(burials);
+                return;
+            }
+            
+            const filteredBurials = burials.filter(burial => 
+                burial.nomefalecido.toLowerCase().includes(searchTerm) ||
+                burial.funeraria.toLowerCase().includes(searchTerm) ||
+                (burial.quadra && burial.quadra.toLowerCase().includes(searchTerm)) ||
+                (burial.lote && burial.lote.toLowerCase().includes(searchTerm)) ||
+                (burial.velorio && burial.velorio.toLowerCase().includes(searchTerm))
+            );
+            
+            renderBurialsList(filteredBurials);
         }
 
         function updateAgentsList() {
@@ -1616,13 +1762,13 @@
                                         <span>Detalhes</span>
                                     </span>
                                 </button>
-                                <button onclick="editAgent(${agent.id})" class="btn-modern bg-gradient-to-r from-amber-600 to-amber-700 dark:from-amber-500 dark:to-amber-600 text-white px-4 py-2 rounded-xl hover:from-amber-700 hover:to-amber-800 dark:hover:from-amber-600 dark:hover:to-amber-700 transition-all duration-300 font-medium shadow-lg hover:shadow-xl">
+                                <button onclick="editAgent('${agent.id}')" class="btn-modern bg-gradient-to-r from-amber-600 to-amber-700 dark:from-amber-500 dark:to-amber-600 text-white px-4 py-2 rounded-xl hover:from-amber-700 hover:to-amber-800 dark:hover:from-amber-600 dark:hover:to-amber-700 transition-all duration-300 font-medium shadow-lg hover:shadow-xl">
                                     <span class="flex items-center space-x-2">
                                         <span>✏️</span>
                                         <span>Editar</span>
                                     </span>
                                 </button>
-                                <button onclick="deleteAgent(${agent.id})" class="btn-modern bg-gradient-to-r from-rose-600 to-rose-700 dark:from-rose-500 dark:to-rose-600 text-white px-4 py-2 rounded-xl hover:from-rose-700 hover:to-rose-800 dark:hover:from-rose-600 dark:hover:to-rose-700 transition-all duration-300 font-medium shadow-lg hover:shadow-xl">
+                                <button onclick="deleteAgent('${agent.id}')" class="btn-modern bg-gradient-to-r from-rose-600 to-rose-700 dark:from-rose-500 dark:to-rose-600 text-white px-4 py-2 rounded-xl hover:from-rose-700 hover:to-rose-800 dark:hover:from-rose-600 dark:hover:to-rose-700 transition-all duration-300 font-medium shadow-lg hover:shadow-xl">
                                     <span class="flex items-center space-x-2">
                                         <span>🗑️</span>
                                         <span>Excluir</span>
@@ -1658,10 +1804,10 @@
                         <a href="${fh.whatsappLink}" target="_blank" class="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 transition-colors">
                             WhatsApp
                         </a>
-                        <button onclick="editFuneralHome(${fh.id})" class="bg-amber-600 text-white px-3 py-1 rounded text-sm hover:bg-amber-700 transition-colors">
+                        <button onclick="editFuneralHome('${fh.id}')" class="bg-amber-600 text-white px-3 py-1 rounded text-sm hover:bg-amber-700 transition-colors">
                             Editar
                         </button>
-                        <button onclick="deleteFuneralHome(${fh.id})" class="bg-rose-600 text-white px-3 py-1 rounded text-sm hover:bg-rose-700 transition-colors">
+                        <button onclick="deleteFuneralHome('${fh.id}')" class="bg-rose-600 text-white px-3 py-1 rounded text-sm hover:bg-rose-700 transition-colors">
                             Excluir
                         </button>
                     </div>
@@ -1722,7 +1868,7 @@
                         `).join('')}
                     </div>
                     <div class="flex gap-3 mt-6">
-                        <button onclick="saveAgentChanges(${burialId}, this.parentElement.parentElement)" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+                        <button onclick="saveAgentChanges('${burialId}', this.parentElement.parentElement)" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
                             Salvar
                         </button>
                         <button onclick="this.parentElement.parentElement.parentElement.remove()" class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700">
@@ -1734,11 +1880,11 @@
             document.body.appendChild(modal);
         }
 
-        function saveAgentChanges(burialId, modal) {
+        async function saveAgentChanges(burialId, modal) {
             const burial = burials.find(b => b.id === burialId);
             const selectedAgents = Array.from(modal.querySelectorAll('input:checked')).map(cb => cb.value);
             burial.agentes = selectedAgents;
-            localStorage.setItem('burials', JSON.stringify(burials));
+            await updateFirebase('burials', burialId, { agentes: selectedAgents });
             modal.parentElement.remove();
             updateBurialsList();
             updateBurialCalendarView();
@@ -1754,7 +1900,7 @@
             modal.innerHTML = `
                 <div class="bg-white rounded-xl p-6 max-w-2xl w-full mx-4 max-h-96 overflow-y-auto">
                     <h3 class="text-lg font-bold mb-4">Editar Sepultamento</h3>
-                    <form onsubmit="saveBurialEdit(event, ${burialId})">
+                    <form onsubmit="saveBurialEdit(event, '${burialId}')">
                         <div class="grid grid-cols-2 gap-4 mb-4">
                             <div>
                                 <label class="block text-sm font-medium mb-1">Nome do Falecido</label>
@@ -1797,7 +1943,7 @@
             document.body.appendChild(modal);
         }
 
-        function saveBurialEdit(event, burialId) {
+        async function saveBurialEdit(event, burialId) {
             event.preventDefault();
             const formData = new FormData(event.target);
             const data = Object.fromEntries(formData.entries());
@@ -1805,7 +1951,7 @@
             const burial = burials.find(b => b.id === burialId);
             if (burial) {
                 Object.assign(burial, data);
-                localStorage.setItem('burials', JSON.stringify(burials));
+                await updateFirebase('burials', burialId, data);
                 showSuccess('Sepultamento atualizado com sucesso!');
                 updateBurialsList();
                 updateBurialCalendarView();
@@ -1813,10 +1959,10 @@
             }
         }
 
-        function deleteBurial(burialId) {
+        async function deleteBurial(burialId) {
             if (confirm('Tem certeza que deseja EXCLUIR permanentemente este sepultamento? Esta ação não pode ser desfeita.')) {
+                await deleteFromFirebase('burials', burialId);
                 burials = burials.filter(b => b.id !== burialId);
-                localStorage.setItem('burials', JSON.stringify(burials));
                 showSuccess('Sepultamento excluído permanentemente!');
                 updateBurialsList();
                 updateBurialCalendarView();
@@ -1835,7 +1981,7 @@
             modal.innerHTML = `
                 <div class="bg-white dark:bg-slate-800 rounded-2xl p-8 max-w-md w-full mx-4">
                     <h3 class="text-2xl font-bold text-slate-800 dark:text-slate-200 mb-6">Editar Agente</h3>
-                    <form onsubmit="saveAgentEdit(event, ${agentId})">
+                    <form onsubmit="saveAgentEdit(event, '${agentId}')">
                         <div class="space-y-4">
                             <div>
                                 <label class="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Nome Completo *</label>
@@ -1864,7 +2010,7 @@
             document.body.appendChild(modal);
         }
 
-        function saveAgentEdit(event, agentId) {
+        async function saveAgentEdit(event, agentId) {
             event.preventDefault();
             const formData = new FormData(event.target);
             const data = Object.fromEntries(formData.entries());
@@ -1889,12 +2035,9 @@
                             burial.agentes[index] = data.nome;
                         }
                     });
-                    
-                    localStorage.setItem('exhumations', JSON.stringify(exhumations));
-                    localStorage.setItem('burials', JSON.stringify(burials));
                 }
                 
-                localStorage.setItem('agents', JSON.stringify(agents));
+                await updateFirebase('agents', agentId, { ...data, whatsappLink: agent.whatsappLink });
                 showSuccess('Agente atualizado com sucesso!');
                 updateAgentsList();
                 updateBurialForm();
@@ -1902,7 +2045,7 @@
             }
         }
 
-        function deleteAgent(agentId) {
+        async function deleteAgent(agentId) {
             const agent = agents.find(a => a.id === agentId);
             if (!agent) return;
             
@@ -1934,10 +2077,7 @@
                 // Remove agent from agents list
                 agents = agents.filter(a => a.id !== agentId);
                 
-                localStorage.setItem('agents', JSON.stringify(agents));
-                localStorage.setItem('exhumations', JSON.stringify(exhumations));
-                localStorage.setItem('burials', JSON.stringify(burials));
-                
+                await deleteFromFirebase('agents', agentId);
                 showSuccess('Agente excluído permanentemente!');
                 updateAgentsList();
                 updateBurialForm();
@@ -1955,7 +2095,7 @@
             modal.innerHTML = `
                 <div class="bg-white dark:bg-slate-800 rounded-2xl p-8 max-w-md w-full mx-4">
                     <h3 class="text-2xl font-bold text-slate-800 dark:text-slate-200 mb-6">Editar Funerária</h3>
-                    <form onsubmit="saveFuneralHomeEdit(event, ${funeralHomeId})">
+                    <form onsubmit="saveFuneralHomeEdit(event, '${funeralHomeId}')">
                         <div class="space-y-4">
                             <div>
                                 <label class="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Nome da Funerária *</label>
@@ -1980,7 +2120,7 @@
             document.body.appendChild(modal);
         }
 
-        function saveFuneralHomeEdit(event, funeralHomeId) {
+        async function saveFuneralHomeEdit(event, funeralHomeId) {
             event.preventDefault();
             const formData = new FormData(event.target);
             const data = Object.fromEntries(formData.entries());
@@ -1998,11 +2138,9 @@
                             burial.funeraria = data.nome;
                         }
                     });
-                    
-                    localStorage.setItem('burials', JSON.stringify(burials));
                 }
                 
-                localStorage.setItem('funeralHomes', JSON.stringify(funeralHomes));
+                await updateFirebase('funeralHomes', funeralHomeId, { ...data, whatsappLink: funeralHome.whatsappLink });
                 showSuccess('Funerária atualizada com sucesso!');
                 updateFuneralHomesList();
                 updateBurialForm();
@@ -2010,7 +2148,7 @@
             }
         }
 
-        function deleteFuneralHome(funeralHomeId) {
+        async function deleteFuneralHome(funeralHomeId) {
             const funeralHome = funeralHomes.find(fh => fh.id === funeralHomeId);
             if (!funeralHome) return;
             
@@ -2034,9 +2172,7 @@
                 // Remove funeral home from list
                 funeralHomes = funeralHomes.filter(fh => fh.id !== funeralHomeId);
                 
-                localStorage.setItem('funeralHomes', JSON.stringify(funeralHomes));
-                localStorage.setItem('burials', JSON.stringify(burials));
-                
+                await deleteFromFirebase('funeralHomes', funeralHomeId);
                 showSuccess('Funerária excluída permanentemente!');
                 updateFuneralHomesList();
                 updateBurialForm();
@@ -2059,7 +2195,7 @@
                             <p class="text-sm text-gray-600">Origem: Quadra ${item.quadraOriginal} - Lote ${item.loteOriginal}</p>
                             <p class="text-sm text-gray-600">Data de entrada: ${item.dataEntrada}</p>
                         </div>
-                        <button onclick="removeFromWaitingDrawer(${item.id})" class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 transition-colors">
+                        <button onclick="removeFromWaitingDrawer('${item.id}')" class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 transition-colors">
                             Remover
                         </button>
                     </div>
@@ -2067,10 +2203,10 @@
             `).join('');
         }
 
-        function removeFromWaitingDrawer(itemId) {
+        async function removeFromWaitingDrawer(itemId) {
             if (confirm('Tem certeza que deseja remover este item da gaveta de espera?')) {
+                await deleteFromFirebase('waitingDrawer', itemId);
                 waitingDrawer = waitingDrawer.filter(item => item.id !== itemId);
-                localStorage.setItem('waitingDrawer', JSON.stringify(waitingDrawer));
                 updateWaitingDrawerList();
                 showSuccess('Item removido da gaveta de espera!');
             }
@@ -2208,7 +2344,7 @@
             document.body.appendChild(modal);
         }
 
-        function saveOpenGraveEdit(event, oldGraveId) {
+        async function saveOpenGraveEdit(event, oldGraveId) {
             event.preventDefault();
             const formData = new FormData(event.target);
             const data = Object.fromEntries(formData.entries());
@@ -2216,7 +2352,7 @@
             const newGraveId = `${data.quadra}-${data.lote}`;
             
             // Check if new ID conflicts with existing grave (except current one)
-            if (newGraveId !== oldGraveId && openGraves.find(g => g.id === newGraveId)) {
+            if (newGraveId !== oldGraveId && openGraves.find(g => g.graveId === newGraveId)) {
                 alert('Já existe uma sepultura aberta com esta quadra e lote!');
                 return;
             }
@@ -2224,13 +2360,17 @@
             const graveIndex = openGraves.findIndex(g => g.id === oldGraveId);
             if (graveIndex !== -1) {
                 const existingGrave = openGraves[graveIndex];
-                openGraves[graveIndex] = {
-                    ...existingGrave,
+                const updatedData = {
                     ...data,
-                    id: newGraveId
+                    graveId: newGraveId
                 };
                 
-                localStorage.setItem('openGraves', JSON.stringify(openGraves));
+                openGraves[graveIndex] = {
+                    ...existingGrave,
+                    ...updatedData
+                };
+                
+                await updateFirebase('openGraves', oldGraveId, updatedData);
                 showSuccess('Sepultura atualizada com sucesso!');
                 updateOpenGravesManagement();
                 updateBurialForm();
@@ -2238,10 +2378,10 @@
             }
         }
 
-        function removeOpenGrave(graveId) {
+        async function removeOpenGrave(graveId) {
             if (confirm('Tem certeza que deseja remover esta sepultura da lista de abertas?')) {
+                await deleteFromFirebase('openGraves', graveId);
                 openGraves = openGraves.filter(g => g.id !== graveId);
-                localStorage.setItem('openGraves', JSON.stringify(openGraves));
                 showSuccess('Sepultura removida da lista!');
                 updateOpenGravesManagement();
                 updateBurialForm();
@@ -2249,14 +2389,17 @@
             }
         }
 
-        function extendGraveDeadline(graveId) {
+        async function extendGraveDeadline(graveId) {
             const years = prompt('Quantos anos a mais? (1, 2, 3 ou mais)', '1');
             if (years && !isNaN(years) && years > 0) {
                 const grave = openGraves.find(g => g.id === graveId);
                 if (grave) {
                     grave.prorrogacao = (grave.prorrogacao || 0) + parseInt(years);
                     grave.ultimaProrrogacao = new Date().toLocaleDateString('pt-BR');
-                    localStorage.setItem('openGraves', JSON.stringify(openGraves));
+                    await updateFirebase('openGraves', graveId, { 
+                        prorrogacao: grave.prorrogacao, 
+                        ultimaProrrogacao: grave.ultimaProrrogacao 
+                    });
                     showSuccess(`Prazo prorrogado por ${years} ano(s) para a sepultura ${graveId}`);
                     updateOpenGravesManagement();
                 }
@@ -2271,28 +2414,51 @@
             
             const printContent = `
                 <div class="print-only">
-                    <h1 style="text-align: center; margin-bottom: 20px;">Lista Completa de Sepulturas Abertas</h1>
+                    <h1 style="text-align: center; margin-bottom: 20px;">Lista de Sepulturas Abertas</h1>
                     <p style="text-align: center; margin-bottom: 30px;">Data: ${new Date().toLocaleDateString('pt-BR')} - Total: ${openGraves.length} sepultura(s)</p>
                     <table style="width: 100%; border-collapse: collapse;">
                         <thead>
                             <tr style="background-color: #f3f4f6;">
-                                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: left;">Quadra</th>
-                                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: left;">Lote</th>
-                                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: left;">Data Abertura</th>
-                                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: left;">Origem</th>
-                                <th style="border: 1px solid #d1d5db; padding: 8px; text-align: left;">Observações</th>
+                                <th style="border: 1px solid #000; padding: 8px; text-align: left; width: 12%;">Data Exumação</th>
+                                <th style="border: 1px solid #000; padding: 8px; text-align: left; width: 8%;">Quadra</th>
+                                <th style="border: 1px solid #000; padding: 8px; text-align: left; width: 8%;">Lote</th>
+                                <th style="border: 1px solid #000; padding: 8px; text-align: left; width: 20%;">Agente</th>
+                                <th style="border: 1px solid #000; padding: 8px; text-align: left; width: 17%;">Destino</th>
+                                <th style="border: 1px solid #000; padding: 8px; text-align: left; width: 35%;">Fechamento</th>
                             </tr>
                         </thead>
                         <tbody>
-                            ${openGraves.sort((a, b) => a.quadra.localeCompare(b.quadra) || a.lote.localeCompare(b.lote)).map(grave => `
+                            ${openGraves.map(grave => {
+                                // Find the exhumation that created this open grave
+                                const relatedExhumation = exhumations.find(ex => 
+                                    ex.quadra === grave.quadra && ex.lote === grave.lote && ex.status === 'concluída'
+                                );
+                                
+                                const dataExumacao = relatedExhumation ? relatedExhumation.dataExumacao : '-';
+                                const agente = relatedExhumation ? relatedExhumation.agenteSepultador || '-' : '-';
+                                const destino = relatedExhumation ? relatedExhumation.destino || '-' : '-';
+                                
+                                return {
+                                    grave,
+                                    dataExumacao,
+                                    agente,
+                                    destino,
+                                    sortDate: relatedExhumation ? new Date(relatedExhumation.dataExumacao) : new Date('1900-01-01')
+                                };
+                            }).sort((a, b) => a.sortDate - b.sortDate).map(item => {
+                                const dataFormatted = item.dataExumacao !== '-' ? new Date(item.dataExumacao + 'T00:00:00').toLocaleDateString('pt-BR') : '-';
+                                
+                                return `
                                 <tr>
-                                    <td style="border: 1px solid #d1d5db; padding: 8px;">${grave.quadra}</td>
-                                    <td style="border: 1px solid #d1d5db; padding: 8px;">${grave.lote}</td>
-                                    <td style="border: 1px solid #d1d5db; padding: 8px;">${grave.dataAbertura}</td>
-                                    <td style="border: 1px solid #d1d5db; padding: 8px;">${grave.origem}</td>
-                                    <td style="border: 1px solid #d1d5db; padding: 8px;">${grave.observacoes || '-'}</td>
+                                    <td style="border: 1px solid #000; padding: 8px;">${dataFormatted}</td>
+                                    <td style="border: 1px solid #000; padding: 8px;">${item.grave.quadra}</td>
+                                    <td style="border: 1px solid #000; padding: 8px;">${item.grave.lote}</td>
+                                    <td style="border: 1px solid #000; padding: 8px;">${item.agente}</td>
+                                    <td style="border: 1px solid #000; padding: 8px;">${item.destino}</td>
+                                    <td style="border: 1px solid #000; padding: 20px; height: 40px;"></td>
                                 </tr>
-                            `).join('')}
+                                `;
+                            }).join('')}
                         </tbody>
                     </table>
                 </div>
@@ -2302,12 +2468,12 @@
             printWindow.document.write(`
                 <html>
                     <head>
-                        <title>Lista Completa de Sepulturas Abertas</title>
+                        <title>Lista de Sepulturas Abertas</title>
                         <style>
                             body { font-family: Arial, sans-serif; margin: 20px; }
                             table { width: 100%; border-collapse: collapse; }
-                            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-                            th { background-color: #f2f2f2; }
+                            th, td { border: 1px solid #000; padding: 8px; text-align: left; vertical-align: top; }
+                            th { background-color: #f2f2f2; font-weight: bold; }
                         </style>
                     </head>
                     <body>${printContent}</body>
@@ -2489,13 +2655,27 @@
                 
                 // Data rows with white background and black text
                 exhumations.forEach(ex => {
+                    // Build destination info with additional details
+                    let destinoInfo = ex.destino;
+                    if (ex.destino === 'sepultura' && ex.quadraDestino && ex.loteDestino) {
+                        destinoInfo += ` (Q${ex.quadraDestino} L${ex.loteDestino})`;
+                    } else if (ex.destino === 'nicho' && ex.numeroNicho) {
+                        destinoInfo += ` (${ex.numeroNicho})`;
+                    } else if (ex.destino === 'sepulcro' && ex.quadraSepulcro && ex.numeroSepulcro) {
+                        destinoInfo += ` (Q${ex.quadraSepulcro} N${ex.numeroSepulcro})`;
+                    } else if (ex.destino === 'traslado' && ex.destinoTraslado) {
+                        destinoInfo += ` (${ex.destinoTraslado})`;
+                    } else if ((ex.destino === 'traslado-crematório' || ex.destino === 'traslado') && ex.protocolo) {
+                        destinoInfo += ` (Prot: ${ex.protocolo})`;
+                    }
+                    
                     agentSections += `
                         <tr style="background-color: #ffffff; color: #000000;">
                             <td style="border: 1px solid #ddd; padding: 12px;">${ex.quadra}</td>
                             <td style="border: 1px solid #ddd; padding: 12px;">${ex.lote}</td>
                             <td style="border: 1px solid #ddd; padding: 12px;">${ex.nomefalecido}</td>
                             <td style="border: 1px solid #ddd; padding: 12px;">${agent}</td>
-                            <td style="border: 1px solid #ddd; padding: 12px;">${ex.destino}</td>
+                            <td style="border: 1px solid #ddd; padding: 12px;">${destinoInfo}</td>
                             <td style="border: 1px solid #ddd; padding: 12px;">${selectedDateFormatted}</td>
                         </tr>
                     `;
@@ -3251,37 +3431,8 @@
             printWindow.print();
         }
 
-        // Initialize
-        document.addEventListener('DOMContentLoaded', function() {
-            initializeDarkMode();
-            updateDashboard();
-            updateCalendarView();
-            updateBurialCalendarView();
-            updateWaitingDrawerList();
-            updateBurialsList();
-            updateAgentsList();
-            updateFuneralHomesList();
-            updateBurialForm();
-            updateOpenGravesManagement();
-            populateMonthSelector();
-            populateDashboardMonthSelector();
-            
-            // Set today's date as default
-            const today = new Date().toISOString().split('T')[0];
-            document.getElementById('calendarDate').value = today;
-            document.getElementById('burialCalendarDate').value = today;
-            
-            // Close mobile menu when clicking outside
-            document.addEventListener('click', function(e) {
-                const mobileMenu = document.getElementById('mobileMenu');
-                const menuButton = e.target.closest('button[onclick="toggleMobileMenu()"]');
-                
-                if (!mobileMenu.contains(e.target) && !menuButton && !mobileMenu.classList.contains('hidden')) {
-                    mobileMenu.classList.add('hidden');
-                }
-            });
-        });
+        // Sistema já inicializado nos arquivos externos
     </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9868de9ef27f5f4a',t:'MTc1OTEyMTUzMC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</body>
 </html>
 
