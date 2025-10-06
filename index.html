@@ -568,6 +568,9 @@
                         </button>
                     </div>
                 </div>
+                <div class="mb-4">
+                    <input type="text" id="searchExhumations" placeholder="Pesquisar por nome, solicitante, quadra, lote ou agente..." class="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent" oninput="filterExhumations()">
+                </div>
                 <div id="calendarView" class="space-y-3">
                     <p class="text-slate-500 text-center py-8">Selecione uma data para ver as exumações</p>
                 </div>
@@ -706,21 +709,13 @@
                                 <option value="">Selecione a funerária</option>
                             </select>
                         </div>
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-2">Sepultura *</label>
-                            <select name="sepultura" required onchange="toggleManualGrave(this.value)" class="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                                <option value="">Selecione uma sepultura aberta</option>
-                                <option value="manual">Inserir manualmente</option>
-                            </select>
-                        </div>
-                        <div id="manualGraveFields" class="hidden grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-sm font-medium text-slate-700 mb-2">Quadra *</label>
-                                <input type="text" name="quadraManual" class="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-slate-700 mb-2">Lote *</label>
-                                <input type="text" name="loteManual" class="w-full px-4 py-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                        <div class="col-span-2">
+                            <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                                <div class="flex items-center space-x-2">
+                                    <span class="text-amber-600">⚠️</span>
+                                    <span class="text-sm font-medium text-amber-800">A sepultura será definida após o agendamento</span>
+                                </div>
+                                <p class="text-xs text-amber-700 mt-1">O sepultamento será criado com status "Pendente de Sepultura" e você poderá definir a sepultura posteriormente.</p>
                             </div>
                         </div>
                     </div>
@@ -1031,24 +1026,7 @@
             }
         });
 
-        // Manual grave toggle
-        function toggleManualGrave(value) {
-            const manualFields = document.getElementById('manualGraveFields');
-            const quadraInput = document.querySelector('input[name="quadraManual"]');
-            const loteInput = document.querySelector('input[name="loteManual"]');
-            
-            if (value === 'manual') {
-                manualFields.classList.remove('hidden');
-                quadraInput.required = true;
-                loteInput.required = true;
-            } else {
-                manualFields.classList.add('hidden');
-                quadraInput.required = false;
-                loteInput.required = false;
-                quadraInput.value = '';
-                loteInput.value = '';
-            }
-        }
+        // Manual grave toggle - moved to external files
 
         // Schedule exhumation
         async function scheduleExhumation(event) {

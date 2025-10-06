@@ -10,10 +10,23 @@ function updateCalendarView() {
         return;
     }
     
-    const dayExhumations = exhumations.filter(ex => ex.dataExumacao === selectedDate);
+    let dayExhumations = exhumations.filter(ex => ex.dataExumacao === selectedDate);
+    
+    // Apply search filter if exists
+    const searchTerm = document.getElementById('searchExhumations')?.value.toLowerCase() || '';
+    if (searchTerm) {
+        dayExhumations = dayExhumations.filter(ex => 
+            ex.nomefalecido.toLowerCase().includes(searchTerm) ||
+            ex.solicitante.toLowerCase().includes(searchTerm) ||
+            ex.quadra.toLowerCase().includes(searchTerm) ||
+            ex.lote.toLowerCase().includes(searchTerm) ||
+            (ex.agenteSepultador && ex.agenteSepultador.toLowerCase().includes(searchTerm))
+        );
+    }
     
     if (dayExhumations.length === 0) {
-        container.innerHTML = '<p class="text-gray-500 text-center py-8">Nenhuma exumação agendada para esta data</p>';
+        const message = searchTerm ? 'Nenhuma exumação encontrada com os critérios de busca' : 'Nenhuma exumação agendada para esta data';
+        container.innerHTML = `<p class="text-gray-500 text-center py-8">${message}</p>`;
         return;
     }
     
@@ -99,13 +112,25 @@ function updateBurialCalendarView() {
         return timeA.localeCompare(timeB);
     });
     
-    container.innerHTML = dayBurials.map(burial => `
-        <div class="p-4 border border-gray-200 rounded-lg">
+    container.innerHTML = dayBurials.map(burial => {
+        const statusBadge = burial.status === 'pendente-sepultura' ? 
+            '<span class="inline-block px-2 py-1 text-xs font-medium bg-amber-100 text-amber-800 rounded-full">⏳ Pendente de Sepultura</span>' :
+            '<span class="inline-block px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">✅ Sepultura Definida</span>';
+        
+        const sepulturaInfo = burial.status === 'pendente-sepultura' ? 
+            '<span class="text-amber-600 font-medium">Sepultura não definida</span>' :
+            `Quadra ${burial.quadra} - Lote ${burial.lote}`;
+        
+        return `
+        <div class="p-4 border border-gray-200 rounded-lg ${burial.status === 'pendente-sepultura' ? 'border-amber-300 bg-amber-50' : ''}">
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                    <h4 class="font-semibold text-lg">${burial.nomefalecido}</h4>
+                    <div class="flex items-center gap-2 mb-2">
+                        <h4 class="font-semibold text-lg">${burial.nomefalecido}</h4>
+                        ${statusBadge}
+                    </div>
                     <p class="text-sm text-gray-600">Horário: ${burial.horario}</p>
-                    <p class="text-sm text-gray-600">Quadra ${burial.quadra} - Lote ${burial.lote}</p>
+                    <p class="text-sm text-gray-600">Sepultura: ${sepulturaInfo}</p>
                     <p class="text-sm text-gray-600">Funerária: ${burial.funeraria}</p>
                     ${(() => {
                         const funeralHome = funeralHomes.find(fh => fh.nome === burial.funeraria);
@@ -136,6 +161,11 @@ function updateBurialCalendarView() {
                     </p>
                 </div>
                 <div class="flex flex-col gap-2">
+                    ${burial.status === 'pendente-sepultura' ? `
+                        <button onclick="defineBurialGrave('${burial.id}')" class="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 transition-colors font-medium">
+                            🏗️ Definir Sepultura
+                        </button>
+                    ` : ''}
                     <button onclick="editBurialAgents('${burial.id}')" class="bg-indigo-600 text-white px-3 py-1 rounded text-sm hover:bg-indigo-700 transition-colors">
                         Editar Agentes
                     </button>
@@ -148,7 +178,8 @@ function updateBurialCalendarView() {
                 </div>
             </div>
         </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 // Burials List
@@ -170,13 +201,25 @@ function renderBurialsList(burialsToShow) {
         return;
     }
     
-    container.innerHTML = burialsToShow.map(burial => `
-        <div class="p-4 border border-gray-200 rounded-lg">
+    container.innerHTML = burialsToShow.map(burial => {
+        const statusBadge = burial.status === 'pendente-sepultura' ? 
+            '<span class="inline-block px-2 py-1 text-xs font-medium bg-amber-100 text-amber-800 rounded-full ml-2">⏳ Pendente</span>' :
+            '<span class="inline-block px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full ml-2">✅ Definida</span>';
+        
+        const sepulturaInfo = burial.status === 'pendente-sepultura' ? 
+            '<span class="text-amber-600 font-medium">Sepultura não definida</span>' :
+            `Quadra ${burial.quadra} - Lote ${burial.lote}`;
+        
+        return `
+        <div class="p-4 border border-gray-200 rounded-lg ${burial.status === 'pendente-sepultura' ? 'border-amber-300 bg-amber-50' : ''}">
             <div class="flex justify-between items-start">
                 <div>
-                    <h4 class="font-semibold">${burial.nomefalecido}</h4>
+                    <div class="flex items-center">
+                        <h4 class="font-semibold">${burial.nomefalecido}</h4>
+                        ${statusBadge}
+                    </div>
                     <p class="text-sm text-gray-600">Data: ${new Date(burial.data).toLocaleDateString('pt-BR')} às ${burial.horario}</p>
-                    <p class="text-sm text-gray-600">Sepultura: Quadra ${burial.quadra || 'N/A'} - Lote ${burial.lote || 'N/A'}</p>
+                    <p class="text-sm text-gray-600">Sepultura: ${sepulturaInfo}</p>
                     <p class="text-sm text-gray-600">Funerária: ${burial.funeraria}</p>
                     ${(() => {
                         const funeralHome = funeralHomes.find(fh => fh.nome === burial.funeraria);
@@ -200,14 +243,20 @@ function renderBurialsList(burialsToShow) {
                     })()}
                     ${burial.velorio ? `<p class="text-sm text-gray-600">Velório: ${burial.velorio}</p>` : ''}
                 </div>
-                <div class="text-right">
+                <div class="text-right flex flex-col gap-2">
+                    ${burial.status === 'pendente-sepultura' ? `
+                        <button onclick="defineBurialGrave('${burial.id}')" class="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 transition-colors font-medium">
+                            🏗️ Definir Sepultura
+                        </button>
+                    ` : ''}
                     <button onclick="editBurialAgents('${burial.id}')" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors">
                         Editar Agentes
                     </button>
                 </div>
             </div>
         </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 // Agents List

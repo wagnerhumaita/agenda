@@ -79,11 +79,19 @@ async function updateFirebase(collectionName, docId, data) {
 async function deleteFromFirebase(collectionName, docId) {
     try {
         await window.firestore.deleteDoc(window.firestore.doc(window.db, collectionName, docId));
-    } catch (error) {
-        console.error('Erro ao excluir do Firebase:', error);
+        console.log(`✅ Item ${docId} excluído do Firebase (${collectionName})`);
+        
+        // Also update localStorage as backup
         const localData = JSON.parse(localStorage.getItem(collectionName) || '[]');
         const filteredData = localData.filter(item => item.id !== docId);
         localStorage.setItem(collectionName, JSON.stringify(filteredData));
+    } catch (error) {
+        console.error('❌ Erro ao excluir do Firebase:', error);
+        // Fallback to localStorage only
+        const localData = JSON.parse(localStorage.getItem(collectionName) || '[]');
+        const filteredData = localData.filter(item => item.id !== docId);
+        localStorage.setItem(collectionName, JSON.stringify(filteredData));
+        throw error; // Re-throw to handle in calling function
     }
 }
 
@@ -222,12 +230,32 @@ function updateAllViews() {
     populateDashboardMonthSelector();
 }
 
+// ===== RELOAD DATA FROM FIREBASE =====
+async function reloadDataFromFirebase() {
+    try {
+        console.log('🔄 Recarregando dados do Firebase...');
+        await loadData();
+        showSuccess('Dados recarregados com sucesso!');
+    } catch (error) {
+        console.error('❌ Erro ao recarregar dados:', error);
+        showSuccess('Erro ao recarregar dados. Usando dados locais.');
+    }
+}
+
 // ===== DASHBOARD FUNCTIONS =====
 function updateDashboard() {
-    document.getElementById('exhumationCount').textContent = exhumations.length;
-    document.getElementById('burialCount').textContent = burials.length;
-    document.getElementById('openGravesCount').textContent = openGraves.length;
-    document.getElementById('agentCount').textContent = agents.length;
+    // Force refresh of counts to ensure accuracy
+    const exhumationCount = exhumations ? exhumations.length : 0;
+    const burialCount = burials ? burials.length : 0;
+    const openGravesCount = openGraves ? openGraves.length : 0;
+    const agentCount = agents ? agents.length : 0;
+    
+    document.getElementById('exhumationCount').textContent = exhumationCount;
+    document.getElementById('burialCount').textContent = burialCount;
+    document.getElementById('openGravesCount').textContent = openGravesCount;
+    document.getElementById('agentCount').textContent = agentCount;
+    
+    console.log(`📊 Dashboard atualizado: ${exhumationCount} exumações, ${burialCount} sepultamentos, ${openGravesCount} sepulturas abertas, ${agentCount} agentes`);
     updateOpenGravesList();
 }
 
@@ -282,38 +310,22 @@ async function scheduleBurial(event) {
     
     data.agentes = Array.from(document.querySelectorAll('#agentSelection input:checked')).map(cb => cb.value);
     data.createdAt = new Date().toISOString();
+    data.status = 'pendente-sepultura'; // Status inicial
+    data.quadra = '';
+    data.lote = '';
+    data.sepultura = '';
     
+    // Use custom time if selected
     if (data.horario === 'custom') {
         data.horario = data.horarioCustom;
-    }
-    
-    if (data.sepultura === 'manual') {
-        data.sepultura = `${data.quadraManual}-${data.loteManual}`;
-        data.quadra = data.quadraManual;
-        data.lote = data.loteManual;
-    } else {
-        const grave = openGraves.find(g => g.id === data.sepultura);
-        if (grave) {
-            data.quadra = grave.quadra;
-            data.lote = grave.lote;
-        }
     }
     
     const docId = await saveToFirebase('burials', data);
     data.id = docId;
     burials.push(data);
     
-    if (data.sepultura !== `${data.quadraManual}-${data.loteManual}`) {
-        const graveToRemove = openGraves.find(g => g.id === data.sepultura);
-        if (graveToRemove) {
-            await deleteFromFirebase('openGraves', graveToRemove.id);
-            openGraves = openGraves.filter(g => g.id !== data.sepultura);
-        }
-    }
-    
-    showSuccess('Sepultamento agendado com sucesso!');
+    showSuccess('Sepultamento agendado com sucesso! Status: Pendente de Sepultura');
     event.target.reset();
-    document.getElementById('manualGraveFields').classList.add('hidden');
     updateBurialsList();
     updateBurialCalendarView();
     updateBurialForm();
@@ -511,6 +523,10 @@ function filterOpenGraves() {
     updateOpenGravesManagementList();
 }
 
+function filterExhumations() {
+    updateCalendarView();
+}
+
 // ===== INITIALIZATION =====
 document.addEventListener('DOMContentLoaded', async function() {
     initializeDarkMode();
@@ -521,6 +537,14 @@ document.addEventListener('DOMContentLoaded', async function() {
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('calendarDate').value = today;
     document.getElementById('burialCalendarDate').value = today;
+    
+    // Add keyboard shortcut to reload data (Ctrl+R or F5)
+    document.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey && e.key === 'r') || e.key === 'F5') {
+            e.preventDefault();
+            reloadDataFromFirebase();
+        }
+    });
     
     document.addEventListener('click', function(e) {
         const mobileMenu = document.getElementById('mobileMenu');

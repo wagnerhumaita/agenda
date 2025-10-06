@@ -179,11 +179,17 @@ function editExhumationConclusion(exhumationId) {
 
 async function deleteExhumation(exhumationId) {
     if (confirm('Tem certeza que deseja EXCLUIR permanentemente esta exumação? Esta ação não pode ser desfeita.')) {
-        await deleteFromFirebase('exhumations', exhumationId);
-        exhumations = exhumations.filter(ex => ex.id !== exhumationId);
-        showSuccess('Exumação excluída permanentemente!');
-        updateCalendarView();
-        updateDashboard();
+        try {
+            await deleteFromFirebase('exhumations', exhumationId);
+            exhumations = exhumations.filter(ex => ex.id !== exhumationId);
+            showSuccess('Exumação excluída permanentemente!');
+            updateCalendarView();
+            updateDashboard();
+            updateAllViews();
+        } catch (error) {
+            console.error('Erro ao excluir exumação:', error);
+            showSuccess('Erro ao excluir exumação. Tente novamente.');
+        }
     }
 }
 
@@ -299,14 +305,158 @@ async function saveBurialEdit(event, burialId) {
 
 async function deleteBurial(burialId) {
     if (confirm('Tem certeza que deseja EXCLUIR permanentemente este sepultamento? Esta ação não pode ser desfeita.')) {
-        await deleteFromFirebase('burials', burialId);
-        burials = burials.filter(b => b.id !== burialId);
-        showSuccess('Sepultamento excluído permanentemente!');
-        updateBurialsList();
-        updateBurialCalendarView();
-        updateDashboard();
-        updateFuneralHomesList();
+        try {
+            await deleteFromFirebase('burials', burialId);
+            burials = burials.filter(b => b.id !== burialId);
+            showSuccess('Sepultamento excluído permanentemente!');
+            updateBurialsList();
+            updateBurialCalendarView();
+            updateDashboard();
+            updateFuneralHomesList();
+            updateAllViews();
+        } catch (error) {
+            console.error('Erro ao excluir sepultamento:', error);
+            showSuccess('Erro ao excluir sepultamento. Tente novamente.');
+        }
     }
+}
+
+function defineBurialGrave(burialId) {
+    const burial = burials.find(b => b.id === burialId);
+    if (!burial) return;
+    
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+    modal.innerHTML = `
+        <div class="bg-white rounded-xl p-6 max-w-md w-full mx-4">
+            <h3 class="text-lg font-bold mb-4">🏗️ Definir Sepultura</h3>
+            <p class="text-sm text-gray-600 mb-4">Sepultamento: <strong>${burial.nomefalecido}</strong></p>
+            
+            <form onsubmit="saveBurialGrave(event, '${burialId}')">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-2">Escolha uma opção:</label>
+                        <div class="space-y-2">
+                            <label class="flex items-center space-x-2">
+                                <input type="radio" name="graveOption" value="existing" checked onchange="toggleGraveFields()">
+                                <span>Usar sepultura aberta existente</span>
+                            </label>
+                            <label class="flex items-center space-x-2">
+                                <input type="radio" name="graveOption" value="manual" onchange="toggleGraveFields()">
+                                <span>Inserir manualmente</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div id="existingGraveField">
+                        <label class="block text-sm font-medium mb-2">Sepultura Aberta *</label>
+                        <select name="sepultura" required class="w-full px-3 py-2 border rounded">
+                            <option value="">Selecione uma sepultura</option>
+                            ${openGraves.map(grave => `<option value="${grave.id}">Quadra ${grave.quadra} - Lote ${grave.lote}</option>`).join('')}
+                        </select>
+                    </div>
+                    
+                    <div id="manualGraveFields" class="hidden space-y-3">
+                        <div>
+                            <label class="block text-sm font-medium mb-2">Quadra *</label>
+                            <input type="text" name="quadraManual" class="w-full px-3 py-2 border rounded" placeholder="Ex: A, B, 1, 2">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium mb-2">Lote *</label>
+                            <input type="text" name="loteManual" class="w-full px-3 py-2 border rounded" placeholder="Ex: 123, 45A">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="flex gap-3 mt-6">
+                    <button type="submit" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 font-medium">
+                        ✅ Definir Sepultura
+                    </button>
+                    <button type="button" onclick="this.closest('.fixed').remove()" class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700">
+                        Cancelar
+                    </button>
+                </div>
+            </form>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+function toggleGraveFields() {
+    const existingField = document.getElementById('existingGraveField');
+    const manualFields = document.getElementById('manualGraveFields');
+    const selectedOption = document.querySelector('input[name="graveOption"]:checked').value;
+    const sepulturaSelect = document.querySelector('select[name="sepultura"]');
+    const quadraInput = document.querySelector('input[name="quadraManual"]');
+    const loteInput = document.querySelector('input[name="loteManual"]');
+    
+    if (selectedOption === 'existing') {
+        existingField.classList.remove('hidden');
+        manualFields.classList.add('hidden');
+        sepulturaSelect.required = true;
+        quadraInput.required = false;
+        loteInput.required = false;
+        quadraInput.value = '';
+        loteInput.value = '';
+    } else {
+        existingField.classList.add('hidden');
+        manualFields.classList.remove('hidden');
+        sepulturaSelect.required = false;
+        quadraInput.required = true;
+        loteInput.required = true;
+        sepulturaSelect.value = '';
+    }
+}
+
+async function saveBurialGrave(event, burialId) {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const data = Object.fromEntries(formData.entries());
+    
+    const burial = burials.find(b => b.id === burialId);
+    if (!burial) return;
+    
+    let quadra, lote, sepulturaId;
+    
+    if (data.graveOption === 'existing') {
+        const selectedGrave = openGraves.find(g => g.id === data.sepultura);
+        if (!selectedGrave) {
+            alert('Sepultura selecionada não encontrada!');
+            return;
+        }
+        quadra = selectedGrave.quadra;
+        lote = selectedGrave.lote;
+        sepulturaId = selectedGrave.id;
+        
+        // Remove the grave from open graves
+        await deleteFromFirebase('openGraves', selectedGrave.id);
+        openGraves = openGraves.filter(g => g.id !== selectedGrave.id);
+    } else {
+        quadra = data.quadraManual;
+        lote = data.loteManual;
+        sepulturaId = `${quadra}-${lote}`;
+    }
+    
+    // Update burial with grave information
+    burial.quadra = quadra;
+    burial.lote = lote;
+    burial.sepultura = sepulturaId;
+    burial.status = 'sepultura-definida';
+    
+    await updateFirebase('burials', burialId, {
+        quadra: quadra,
+        lote: lote,
+        sepultura: sepulturaId,
+        status: 'sepultura-definida'
+    });
+    
+    showSuccess('Sepultura definida com sucesso!');
+    updateBurialsList();
+    updateBurialCalendarView();
+    updateDashboard();
+    updateOpenGravesManagement();
+    
+    event.target.closest('.fixed').remove();
 }
 
 // ===== AGENT MANAGEMENT FUNCTIONS =====
@@ -396,25 +546,36 @@ async function deleteAgent(agentId) {
     }
     
     if (confirm(confirmMessage)) {
-        exhumations.forEach(ex => {
-            if (ex.agenteSepultador === agent.nome) {
+        try {
+            // Update exhumations and burials to remove agent references
+            const exhumationsToUpdate = exhumations.filter(ex => ex.agenteSepultador === agent.nome);
+            const burialsToUpdate = burials.filter(burial => burial.agentes && burial.agentes.includes(agent.nome));
+            
+            // Update Firebase for affected exhumations
+            for (const ex of exhumationsToUpdate) {
                 ex.agenteSepultador = '';
+                await updateFirebase('exhumations', ex.id, { agenteSepultador: '' });
             }
-        });
-        
-        burials.forEach(burial => {
-            if (burial.agentes && burial.agentes.includes(agent.nome)) {
+            
+            // Update Firebase for affected burials
+            for (const burial of burialsToUpdate) {
                 burial.agentes = burial.agentes.filter(name => name !== agent.nome);
+                await updateFirebase('burials', burial.id, { agentes: burial.agentes });
             }
-        });
-        
-        agents = agents.filter(a => a.id !== agentId);
-        
-        await deleteFromFirebase('agents', agentId);
-        showSuccess('Agente excluído permanentemente!');
-        updateAgentsList();
-        updateBurialForm();
-        updateDashboard();
+            
+            // Remove agent from local array and Firebase
+            agents = agents.filter(a => a.id !== agentId);
+            await deleteFromFirebase('agents', agentId);
+            
+            showSuccess('Agente excluído permanentemente!');
+            updateAgentsList();
+            updateBurialForm();
+            updateDashboard();
+            updateAllViews();
+        } catch (error) {
+            console.error('Erro ao excluir agente:', error);
+            showSuccess('Erro ao excluir agente. Tente novamente.');
+        }
     }
 }
 
@@ -565,18 +726,28 @@ async function deleteFuneralHome(funeralHomeId) {
     }
     
     if (confirm(confirmMessage)) {
-        burials.forEach(burial => {
-            if (burial.funeraria === funeralHome.nome) {
+        try {
+            // Update burials to remove funeral home references
+            const burialsToUpdate = burials.filter(burial => burial.funeraria === funeralHome.nome);
+            
+            // Update Firebase for affected burials
+            for (const burial of burialsToUpdate) {
                 burial.funeraria = '';
+                await updateFirebase('burials', burial.id, { funeraria: '' });
             }
-        });
-        
-        funeralHomes = funeralHomes.filter(fh => fh.id !== funeralHomeId);
-        
-        await deleteFromFirebase('funeralHomes', funeralHomeId);
-        showSuccess('Funerária excluída permanentemente!');
-        updateFuneralHomesList();
-        updateBurialForm();
+            
+            // Remove funeral home from local array and Firebase
+            funeralHomes = funeralHomes.filter(fh => fh.id !== funeralHomeId);
+            await deleteFromFirebase('funeralHomes', funeralHomeId);
+            
+            showSuccess('Funerária excluída permanentemente!');
+            updateFuneralHomesList();
+            updateBurialForm();
+            updateAllViews();
+        } catch (error) {
+            console.error('Erro ao excluir funerária:', error);
+            showSuccess('Erro ao excluir funerária. Tente novamente.');
+        }
     }
 }
 
